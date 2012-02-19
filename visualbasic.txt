@@ -1,0 +1,1129 @@
+REM  *****  BASIC  *****
+' Global variables
+Const Input_Directory = "/home/jhsu/jhsu-invest/analysis/input-data"
+Const Output_Directory = "/home/jhsu/jhsu-invest/analysis/output_data"
+Const Code_Directory = "/home/jhsu/jhsu-invest/analysis/"
+
+Dim Message, Title, Company_Symbol, File_Name
+    
+Dim Company_Name, Stock_Symbol
+
+Dim rc() As String, item_name() As String
+' rc is the data.  This includes text headings and numeric data.
+' The data is organized into rows and columns.
+' Each year is assigned a column.
+' Each financial parameter (cash, revenues, depreciation, etc.) is assigned a row.
+Dim code_name() As String, year_string() As String
+' Each row is assigned a code name code_name
+' code_name is the category of the data
+Dim r_input_num_max As Long, c_input_num_max As Long, year_num() As Long
+' r_input_num_max is the number of rows in the file
+' c_input_num_max is the number of columns in the file
+Dim data_num() As Variant
+
+Dim rc_class() As String, class_spec() As String, class_gen() As String
+' rc_class
+' class_spec denotes the specific class of a row.
+' Examples include liq1+ for cash and liq2+ for marketable securities
+' class_gen denotes the general class of the particular row.
+' Examples include liq for liquid assets and liab for liabilities.
+Dim sort_order() As Long, plus_minus() As Long
+' sort_order is used to denote the order in which rows of data are displayed in the output file
+' plus_minus is used to denote whether a particular item is added or subtracted from its general category
+Dim r_class_num_max As Long, c_class_num_max As Long
+' r_class_num_max is the number of rows in the code file
+' c_class_num_max is the number of columns in the code file
+Dim data_class_spec() As String, data_class_gen() As String
+' data_class_spec
+' data_class_gen
+Dim data_sort_order() As Long, data_plus_minus() As Long
+
+Dim un_plus() As Variant, un_minus() As Variant
+Dim liquid() As Variant, liabs() As Variant
+' liquid is the quantity of liquid assets.
+' liabs is the quantity of liabilities
+Dim liab_c() As Long
+' liab_c is the quantity of convertible liabilities
+Dim other_assets() As Variant
+' other_assets is the quantity of important assets that don't fit into the other categories
+Dim shares_pre(), shares_c_pre() As Variant
+Dim shares() As Variant
+' shares is the number of shares outstanding at a given time
+Dim shares_c() As Variant
+' shares_c is the number of shares assuming that all convertible liabilities are converted
+Dim split_factor() As Variant
+' Split factor is for adjusting for splits
+Dim rev(), adj(), exp(), ppec()
+' rev is the quantity of revenues
+' adj is the quantity of adjustments made to calculate free cash flow.
+' This includes changes in the quantities of various current non-liquid assets.
+
+Dim tax_r(), pre_tax_earnings(), stat_inc_tax()
+' tax_r is the company's income tax rate.
+' pre_tax_earnings is the company's pre-tax earnings
+' stat-inc_tax is the company's statutory income tax
+
+Dim netliq(), netliq_c()
+' netliq is the quantity of net liquid assets (assets-liabilities)
+' We assume that no convertible liabilities are converted.
+' netliq_c is the quantity of net liquid assets assuming all convertibles are converted.
+Dim shares_unconv(), shares_conv(), total_shares()
+' shares_unconv is the grand total number of shares outstanding assuming full dilution
+' But it is assumed that convertibles are not converted
+' shares_conv is the total number of convertible shares
+' total_shares is the total number of shares
+Dim total_liabs()
+' total_liabs is the total quantity of liabilities
+Dim cashflow(), cap_net()
+' cashflow is the quantity of cash flow
+' cap_net is the quantity of net capital expenditures (money used to buy plant/property/equipment)
+
+Dim netliq_sh(), netliq_sh_c(), ppec_sh_nc(), ppec_sh_c()
+' netliq_sh is the net liquid assets per share assuming no conversions of convertibles.
+' netliq_sh_c is the net liquid assets per share assuming all convertibles are converted.
+' ppec_sh_nc is the plant/property/equipment per share assuming no conversions of convertibles.
+' ppec_sh_nc is the plant/property/equipment per share assuming all convertibles are converted.
+
+Dim ncap(), ncap_per()
+' ncap is the total net capital spending
+' ncap_per is the ncap per share
+Dim cashflow_per()
+' cashflow_per is the cash flow per share
+Dim fcf(), fcf_per()
+' fcf is the free cash flow (cashflow-ncap)
+' fcf_per is the free cash flow per PPE
+Dim fcf_sh_nc(), fcf_sh_c()
+' fcf_sh is free cash flow per share
+
+Dim num_max_cf As Long, num_ave_cf As Long
+' num_max_cf is the maximum number of years for which cash flow data is available
+' num_ave_cf is number of years to use for averaging purposes when predicting free cash flow
+Dim c_max_bs, c_max_cf, c_max_ret as Long
+' c_max_bs is the last column with balance sheet data
+' c_max_cf is the last column with cash flow data
+' c_max_ret is the last column for which we have fcf(c)/ppe/(c+1) data
+
+Dim num_max_bs As Long
+' num_max_bs is the maximum number of years for which balance sheet data is available
+Dim num_max As Long
+' num_max is the maximum number of years for which cash flow data and balance sheet data are available
+Dim cashflow_per_smooth(), ncap_per_smooth(), fcf_per_smooth()
+' cashflow_per_smooth is the smoothed free cash flow
+' ncap_per_smooth is the smoothed net capital spending
+' fcf_per_smooth is the smoothed free cash flow
+Dim fcf_smooth_sh_nc(), fcf_smooth_sh_c()
+' fcf_sh_nc is the smoothed free cash flow per share assuming no conversions.
+' fcf_sh_c is the smoothed free cash flow per share assuming all convertibles are converted.
+Dim est_val_nc(), est_val_c()
+' est_val_nc is the estimated intrinsic value per share assuming no conversions
+' est_val_c is the estimated intrinsic value per share assuming all convertibles are converted.
+Dim bargain_nc(), bargain_c()
+' bargain_nc is a screaming buy price assuming no conversions
+' bargain_c is a screaming buy price assuming all convertibles are converted.
+Dim price
+Dim est_val_nc_current, est_val_c_current, est_val_current as Double
+Dim bargain_nc_current, bargain_c_current, bargain_current As Double
+Dim alt_pb, alt_pe, alt_yield As Double
+Dim convert As Integer
+
+Sub get_company_name 'Get the company name
+	File_Name = Code_Directory + "/company_list.csv"
+	Open File_Name For Input As #1
+	Company_Name=Null
+	Dim listed As Integer
+	listed=0
+	Do While Not EOF(1) ' Go through file until end of file is reached
+		Input #1, cell ' Read cell
+		if cell=Stock_Symbol Then
+			Input #1, cell
+			Company_Name=cell
+			listed=1
+		End If
+	Loop
+	Close #1
+End Sub
+
+Sub get_data() ' Read the input data
+    ' Check the file names.
+    Dim Message, Title
+    Message = "Enter the stock symbol:"
+    Title = "Stock Symbol"
+    Stock_Symbol = InputBox(Message, Title)
+    File_Name = Input_Directory + "/" + Stock_Symbol + ".csv"
+    ' Count the numbers of years and items
+    ' r_num is row number, c_num is column number
+    Dim r_num, c_num, r_input_prev As Long 
+    ' Count the rows and columns
+    Open File_Name For Input As #1
+    r_num_prev=0
+    c_input_num_max=0
+    Do While Not EOF(1) ' Go through file until end of file is reached
+        Input #1, cell ' Read cell
+        r_num=Loc (#1) ' Loc gives row number
+        If r_num=r_num_prev Then
+        	c_num=c_num+1
+        Else
+        	c_num=1
+        End If
+        If c_input_num_max<c_num Then
+        	c_input_num_max=c_num
+        End If
+        r_num_prev=r_num
+        r_input_num_max=r_num
+    Loop
+    Close #1
+
+    ReDim rc(r_input_num_max, c_input_num_max) As String ' rc is the data in each number/text entry in the file
+    
+    ' Store the input data in arrays
+	r_input_prev=0
+    c_input_num_max=0
+    Open File_Name For Input Access Read As #1
+    Do While Not EOF(1) ' Go through file until end of file is reached
+        Input #1, cell ' Read cell
+        r_num=Loc (#1) ' Loc gives row number
+        If r_num=r_num_prev Then
+        	c_num=c_num+1
+        Else
+        	c_num=1
+        End If
+        If c_input_num_max<c_num Then
+        	c_input_num_max=c_num
+        End If
+        rc(r_num, c_num)=cell
+        r_num_prev=r_num
+        r_input_num_max=r_num
+    Loop
+    Close #1
+End Sub
+
+Sub convert_data_to_years()
+    Dim c_num As Long
+    ReDim year_string(c_input_num_max)
+    ReDim year_num(c_input_num_max)
+    For c_num = 3 To c_input_num_max
+        year_string(c_num) = rc(1, c_num)
+        year_num(c_num) = Val(year_string(c_num))
+        If c_num > 3 And year_num(c_num) <> year_num(c_num - 1) - 1 Then
+            MsgBox ("The years are out of order.")
+            Stop
+        End If
+    Next c_num
+End Sub
+
+Sub convert_data_to_labels()
+    Dim r_num
+    ReDim item_name(r_input_num_max), code_name(r_input_num_max)
+    For r_num = 2 To r_input_num_max
+        item_name(r_num) = rc(r_num, 1)
+        code_name(r_num) = rc(r_num, 2)
+    Next r_num
+End Sub
+
+Sub convert_data_to_numbers()
+    Dim r_num, c_num
+    ReDim data_num(r_input_num_max, c_input_num_max)
+    For r_num = 2 To r_input_num_max
+        For c_num = 3 To c_input_num_max
+            If rc(r_num, c_num) <> "" Then
+                data_num(r_num, c_num) = Val(rc(r_num, c_num))
+            Else
+                data_num(r_num, c_num) = Null
+            End If
+        Next c_num
+    Next r_num
+End Sub
+
+Sub get_codes()
+    Dim Title, Company_Name, File_Name
+
+    File_Name = Code_Directory + "codes.csv"
+    
+    ' Count entries in the code file
+    Dim r_num, c_num As Long
+    r_num = 1
+    c_num = 1
+
+    Open File_Name For Input As #1
+	r_num_prev=0
+	c_class_num_max=0
+    Do While Not EOF(1) ' Go through file until end of file is reached
+        Input #1, cell ' Read cell
+        r_num=Loc (#1) ' Loc gives row number
+        If r_num=r_num_prev Then
+        	c_num=c_num+1
+        Else
+        	c_num=1
+        End If
+        If c_class_num_max<c_num Then
+        	c_class_num_max=c_num
+        End If
+        r_num_prev=r_num
+        r_class_num_max=r_num
+    Loop
+    Close #1
+    ReDim rc_class (r_class_num_max, c_class_num_max)
+
+    Open File_Name For Input As #1
+    Do While Not EOF(1) ' Go through file until end of file is reached
+        Input #1, cell ' Read cell
+        r_num=Loc (#1) ' Loc gives row number
+        If r_num=r_num_prev Then
+        	c_num=c_num+1
+        Else
+        	c_num=1
+        End If
+        If c_input_num_max<c_num Then
+        	c_input_num_max=c_num
+        End If
+        rc_class(r_num, c_num)=cell
+        r_num_prev=r_num
+        r_class_num_max=r_num
+    Loop
+    Close #1
+End Sub
+
+Sub convert_codes()
+    Dim r_num
+    ReDim class_spec(r_class_num_max)
+    ReDim sort_order(r_class_num_max)
+    ReDim plus_minus(r_class_num_max)
+    ReDim class_gen(r_class_num_max)
+    ReDim class_num(r_class_num_max)
+    For r_num = 2 To r_class_num_max
+    	sort_order(r_num) = Val(rc_class(r_num, 1))
+        class_spec(r_num) = rc_class(r_num, 2)
+        plus_minus(r_num) = Val(rc_class(r_num, 3))
+        class_gen(r_num) = rc_class(r_num, 4)
+    Next r_num
+End Sub
+
+Sub match_codes()
+    Dim r_num_input, r_num_code As Long
+    ReDim data_class_spec(r_input_num_max)
+    ReDim data_class_gen(r_input_num_max)
+    ReDim data_sort_order(r_input_num_max)
+    ReDim data_plus_minus(r_input_num_max)
+    For r_num_input = 2 To r_input_num_max
+        r_num_code = 2
+        Do While code_name(r_num_input) <> class_spec(r_num_code) And r_num_code < r_class_num_max
+            r_num_code = r_num_code + 1
+        Loop
+        If r_num_code > r_class_num_max Then
+            MsgBox ("Input code invalid - revise " + code_name(r_num_input))
+        End If
+        data_class_spec(r_num_input) = class_spec(r_num_code)
+        data_class_gen(r_num_input) = class_gen(r_num_code)
+        data_sort_order(r_num_input) = sort_order(r_num_code)
+        data_plus_minus(r_num_input) = plus_minus(r_num_code)
+    Next r_num_input
+End Sub
+
+Sub process_data1()
+    ReDim un_plus(c_input_num_max)
+    ReDim un_minus(c_input_num_max)
+    ReDim liquid(c_input_num_max)
+    ReDim liabs(c_input_num_max)
+    ReDim liab_c(c_input_num_max)
+    ReDim total_liabs(c_input_num_max)
+    ReDim netliq(c_input_num_max)
+    ReDim netliq_c(c_input_num_max)
+    ReDim other_assets(c_input_num_max)
+    ReDim shares_pre(c_input_num_max)
+    ReDim shares_c_pre(c_input_num_max)
+    ReDim split_factor(c_input_num_max)
+    ReDim rev(c_input_num_max)
+    ReDim adj(c_input_num_max)
+    ReDim exp(c_input_num_max)
+    ReDim ppec(c_input_num_max)
+    ReDim tax_r(c_input_num_max)
+    ReDim stat_inc_tax(c_input_num_max)
+    ReDim pre_tax_earnings(c_input_num_max)
+
+    Dim r_data, c_data, r_codes, c_codes As Long
+    r_codes = 2
+    c_codes = 1
+    
+    Dim count_un_plus As Long, count_un_minus As Long
+    Dim count_liquid As Long
+    Dim count_other_assets As Long, count_liabs As Long
+    Dim count_tax_r As Long, count_ptearn As Long, count_stat_tax As Long
+    Dim count_split_factor As Long
+    
+    For c_data = 3 To c_input_num_max
+    	shares_c_pre(c_data)=0
+    Next c_data
+    
+    For r_data = 2 To r_input_num_max
+        For c_data = 3 To c_input_num_max
+            Dim addition As Variant
+            Dim x As String
+            addition = data_plus_minus(r_data) * data_num(r_data, c_data)
+            x = data_class_gen(r_data)
+            If x = "un_p" Then
+                un_plus(c_data) = addition
+                count_un_plus = count_un_plus + 1
+            ElseIf x = "un_n" Then
+                un_minus(c_data) = un_minus(c_data) + addition
+                count_un_minus = count_un_minus + 1
+            ElseIf x = "liq" Then
+                liquid(c_data) = liquid(c_data) + addition
+                count_liquid = count_liquid + 1
+            ElseIf x = "otha" Then
+                other_assets(c_data) = other_assets(c_data) + addition
+            ElseIf x = "liab" Then
+                liabs(c_data) = liabs(c_data) + addition
+                count_liabs = count_liabs + 1
+            ElseIf x = "liabc" Then
+                liab_c(c_data) = liab_c(c_data) + addition
+            ElseIf x = "shares" Then
+                shares_pre(c_data) = shares_pre(c_data) + addition
+            ElseIf x = "sharesc" Then
+                shares_c_pre(c_data) = shares_c_pre(c_data) + addition
+                count_shares_c = count_shares_c + 1
+            ElseIf x="split_factor" Then
+            	split_factor(c_data)=addition
+            	count_split_factor=count_split_factor+1
+            ElseIf x = "rev" Then
+                rev(c_data) = rev(c_data) + addition
+            ElseIf x = "adj" Then
+                adj(c_data) = adj(c_data) + addition
+            ElseIf x = "exp" Then
+                exp(c_data) = exp(c_data) + addition
+            ElseIf x = "ppec" Then
+                ppec(c_data) = ppec(c_data) + addition
+            ElseIf x = "tax_rate" Then
+                tax_r(c_data) = tax_r(c_data) + addition
+                count_tax_r = count_tax_r + 1
+            ElseIf x = "pt_earn" Then
+                pre_tax_earnings(c_data) = pre_tax_earnings(c_data) + addition
+                count_ptearn = count_ptearn + 1
+                If count_ptearn = c_input_num_max - 1 Then
+                    MsgBox ("ERROR: Double-counting of earnings")
+                    Stop
+                End If
+            ElseIf x = "stat_tax" Then
+                stat_inc_tax(c_data) = stat_inc_tax(c_data) + addition
+                count_stat_tax = count_stat_tax + 1
+            End If
+        Next c_data
+    Next r_data
+    For c_data = 3 To c_input_num_max
+    	If un_plus(c_data)=0 Then
+            un_plus(c_data)=Null
+        End If
+        If liquid(c_data)=0 Then
+            liquid(c_data)=Null
+        End If
+		If liabs(c_data)=0 Then
+            liabs(c_data)=Null
+        End If
+		If shares_pre(c_data)=0 Then
+			shares_pre(c_data)=Null
+		End If
+	Next c_data
+    
+    ' Missing categories
+    If count_tax_r = 0 Then
+        If count_ptearn > 0 And count_stat_tax > 0 Then
+            For c_data = 3 To c_input_num_max
+                tax_r(c_data) = stat_inc_tax(c_data) / pre_tax_earnings(c_data)
+            Next c_data
+        Else
+            MsgBox ("ERROR: Missing tax data")
+            'Stop
+        End If
+    End If
+    If count_un_plus = 0 Then
+        MsgBox ("un+ term is missing.")
+        Stop
+    End If
+    If count_liquid = 0 Then
+        MsgBox ("Are you sure there are no liquid assets?")
+        Stop
+    End If
+    If count_liabs = 0 Then
+        MsgBox ("Are you sure there are no liabilities?")
+        Stop
+    End If
+    If count_split_factor=0 Then
+    	MsgBox ("You didn't include the split factor.")
+    	Stop
+    End If
+End Sub
+
+Sub process_data2()
+    Dim c_data As Long
+    ReDim total_shares(c_input_num_max)
+    ReDim netliq(c_input_num_max)
+    ReDim netliq_c(c_input_num_max)
+    ReDim cashflow(c_input_num_max)
+    ReDim netliq_sh(c_input_num_max)
+    ReDim netliq_sh_c(c_input_num_max)
+    ReDim ppec_sh_nc(c_input_num_max)
+    ReDim ppec_sh_c(c_input_num_max)
+    ReDim shares(c_input_num_max)
+    ReDim shares_c(c_input_num_max)
+    For c_data = 3 To c_input_num_max
+    	shares(c_data)=shares_pre(c_data)*split_factor(c_data)
+    	shares_c(c_data)=shares_c_pre(c_data)*split_factor(c_data)
+        total_shares(c_data) = shares(c_data) + shares_c(c_data)
+        total_liabs(c_data) = liabs(c_data) + liab_c(c_data)
+        netliq(c_data) = liquid(c_data) - liabs(c_data)
+        netliq_c(c_data) = netliq(c_data) - liab_c(c_data)
+        cashflow(c_data) = rev(c_data) + adj(c_data) - exp(c_data)
+        if shares(c_data)>0 Then
+        	netliq_sh(c_data) = un_plus(c_data) * netliq(c_data) / shares(c_data)
+        	netliq_sh_c(c_data) = un_plus(c_data) * netliq(c_data) / total_shares(c_data)
+			ppec_sh_nc(c_data)=un_plus(c_data)*ppec(c_data)/shares(c_data)
+			ppec_sh_c(c_data)=un_plus(c_data)*ppec(c_data)/total_shares(c_data)
+		Else
+			netliq_sh(c_data) = Null
+        	netliq_sh_c(c_data) = Null
+			ppec_sh_nc(c_data)= Null
+			ppec_sh_c(c_data)= Null
+		End If
+    Next c_data
+End Sub
+
+Sub process_data3()
+    ReDim ncap(c_input_num_max)
+    ReDim fcf(c_input_num_max)
+    ReDim fcf_sh_nc(c_input_num_max)
+    ReDim fcf_sh_c(c_input_num_max)
+    ReDim cashflow_per(c_input_num_max)
+    ReDim ncap_per(c_input_num_max)
+    ReDim fcf_per(c_input_num_max)
+    
+    ReDim cashflow_per_smooth(c_input_num_max)
+    ReDim ncap_per_smooth(c_input_num_max)
+    ReDim fcf_per_smooth(c_input_num_max)
+    
+    ReDim Preserve ppec(c_input_num_max + 1)
+    ppec(c_input_num_max + 1) = Null
+    num_max_cf = 0
+    ' Calculate free cash flow per PPE
+    For c_num = 3 To c_input_num_max
+        If ppec(c_num+1) = Null Then
+            ncap(c_num) = Null
+        Else
+            ncap(c_num) = .1 * ppec(c_num+1)*un_plus(c_num+1)/un_plus(c_num)
+        End If
+        fcf(c_num) = cashflow(c_num) - ncap(c_num)
+        if shares(c_num)>0 Then
+        	fcf_sh_nc(c_num)=fcf(c_num)*un_plus(c_num)/shares(c_num)
+        	fcf_sh_c(c_num)=fcf(c_num)*un_plus(c_num)/total_shares(c_num)
+        end If
+        if  ppec(c_num + 1) = Null Then
+        	cashflow_per(c_num) = Null
+        Else
+        	cashflow_per(c_num) = cashflow(c_num) * un_plus(c_num) / (ppec(c_num+1) * un_plus(c_num+1))
+        End If
+        If IsNull(cashflow_per(c_num)) = 0 Then
+            num_max_cf = num_max_cf + 1
+        End If
+        ncap_per(c_num) = .1
+        fcf_per(c_num) = cashflow_per(c_num) - .1
+    Next c_num
+    
+    
+    ' Input number of years to base projections on
+    
+    Message = "Project free cash flow based on data over __ years.  "
+    Message = Message + "Maximum: " + Format(num_max_cf) + " years"
+    Title = "Enter number of years"
+    num_ave_cf = InputBox(Message, Title)
+    
+    ' Calculate smoothed performance figures
+    For c_num = 3 To 3 + num_max_cf - num_ave_cf
+        Dim cf_top, cf_bottom, num_cf As Long
+        cf_top = 0
+        cf_bottom = 0
+        For num_cf = 1 To num_ave_cf
+            cf_top = cf_top + cashflow_per(c_num + num_cf - 1)
+            cf_bottom = cf_bottom + 1
+        Next num_cf
+        cashflow_per_smooth(c_num) = cf_top / cf_bottom
+    Next c_num
+    For c_num = 4 + num_max_cf - num_ave_cf To c_input_num_max
+        cashflow_per_smooth(c_num) = Null
+    Next c_num
+    
+    ' Smooth the maintenance rate
+    For c_num = 3 To 3 + num_max_cf - num_ave_cf
+        ncap_per_smooth(c_num) = .1
+    Next c_num
+    For c_num = 4 + num_max_cf - num_ave_cf To c_input_num_max
+        ncap_per_smooth(c_num) = Null
+    Next c_num
+    
+    ' Smooth the free cash flow rate
+    For c_num = 3 To 3 + num_max_cf - num_ave_cf
+        fcf_per_smooth(c_num) = cashflow_per_smooth(c_num) - .1
+    Next c_num
+    
+    For c_num = 4 + num_max_cf - num_ave_cf To c_input_num_max
+        fcf_per_smooth(c_num) = Null
+    Next c_num
+End Sub
+Sub process_data4()
+    ReDim fcf_smooth_sh_nc(c_input_num_max)
+    ReDim fcf_smooth_sh_c(c_input_num_max)
+    ReDim est_val_nc(c_input_num_max)
+    ReDim est_val_c(c_input_num_max)
+    ReDim bargain_nc(c_input_num_max)
+    ReDim bargain_c(c_input_num_max)
+    ' Smoothed free cash flow per share
+    For c_num = 3 To 3 + num_max_cf - num_ave_cf
+    	If shares(c_num)>0 Then
+        	fcf_smooth_sh_nc(c_num) = un_plus(c_num+1) * ppec(c_num+1) * fcf_per_smooth(c_num) / shares(c_num)
+        	fcf_smooth_sh_c(c_num) = un_plus(c_num+1) * ppec(c_num+1) * fcf_per_smooth(c_num) / total_shares(c_num)
+        Else
+        	fcf_smooth_sh_nc(c_num) = Null
+        	fcf_smooth_sh_c(c_num) = Null
+        End If
+    Next c_num
+    For c_num = 4 + num_max_cf - num_ave_cf To c_input_num_max
+        fcf_smooth_sh_nc(c_num) = Null
+        fcf_smooth_sh_c(c_num) = Null
+    Next c_num
+    ' Estimated intrinsic value per share
+    For c_num = 3 To 2 + num_max_cf - num_ave_cf
+        est_val_nc(c_num) = 10 * fcf_smooth_sh_nc(c_num) + netliq_sh(c_num)
+        est_val_c(c_num) = 10 * fcf_smooth_sh_c(c_num) + netliq_sh_c(c_num)
+        bargain_nc(c_num)=(20/3)* fcf_smooth_sh_nc(c_num) + netliq_sh(c_num)
+        bargain_c(c_num)=(20/3)*fcf_smooth_sh_c(c_num) + netliq_sh_c(c_num)
+    Next c_num
+    For c_num = 3 + num_max_cf - num_ave_cf To c_input_num_max
+        est_val_nc(c_num) = Null
+        est_val_c(c_num) = Null
+        bargain_nc(c_num)=Null
+        bargain_c(c_num)=Null
+    Next c_num
+    convert=0
+    est_val_nc_current=10 * fcf_smooth_sh_nc(3) + netliq_sh(3)
+    est_val_c_current=10 * fcf_smooth_sh_c(3) + netliq_sh_c(3)
+    est_val_current=est_val_nc_current
+    if (est_val_current>est_val_c_current) Then
+    	est val_current=CDbl(est_val_c_current)
+    	convert=1
+    End if
+    If convert=0 Then
+    	bargain_current=(20/3)* fcf_smooth_sh_nc(3) + netliq_sh(3)
+    Else
+    	bargain_current=(20/3)*fcf_smooth_sh_c(3) + netliq_sh_c(3)
+    End if
+    price = Val(InputBox("Recent stock price of "+Stock_Symbol))
+    alt_pb=price/est_val_current(3)
+    if convert=0 Then
+    	alt_pe=(price-netliq_sh(3))/fcf_smooth_sh_nc(3)
+    Else
+    	alt_pe=(price-netliq_sh_c(3))/fcf_smooth_sh_c(3)
+    End If
+    alt_yield=1/alt_pe
+End Sub
+
+Sub process_data5()
+	Dim c as Integer
+	c_max_bs=c_input_num_max
+	c_max_cf=c_input_num_max
+	for c=3 to c_input_num_max
+		if IsNull(ppec(c)) and IsNull(shares(c)) Then 
+			c_max_bs=c-1
+		End If
+		if IsNull(fcf(c)) Then
+			c_max_cf=c-1
+		End if
+	next c
+	c_max_ret=c_max_bs-1
+	if (c_max>c_max_cf) Then
+		c_max=c_max_cf
+	End if
+End Sub
+
+
+Sub output_results_1()
+    ' Create new Writer document
+ 	Dim oDoc, oText, oCursor as Object
+	oDoc = StarDesktop.loadComponentFromURL( "private:factory/swriter", "_blank", 0, Array() )
+   	oText = oDoc.getText()
+   	oCursor = oText.createTextCursor()
+   	oCursor.gotoEnd( False )
+   	' New Writer document created
+   	' Change orientation from portrait to landscape
+   	Dim oPrinterOptions(0) as New com.sun.star.beans.PropertyValue
+	oPrinterOptions(0).Name = "PaperOrientation"
+	oPrinterOptions(0).Value = com.sun.star.view.PaperOrientation.LANDSCAPE
+	oDoc.Printer = oPrinterOptions() 
+	' Now with landscape orientation
+	' Create title
+	oText.insertString( oCursor, Company_Name, False )
+	oCursor.ParaStyleName = "Heading 1"
+	' Finished creating title
+	' Write stock symbol
+	oText.insertString( oCursor, chr(13)+"Stock Symbol: "+Stock_Symbol+chr(9), False )
+	' Finished writing stock symbol
+	oText.insertString(oCursor, chr(9)+"Recent Price: ", False)
+	oText.insertString(oCursor, CStr(Format(price, "$0.00"))+chr(13), False)
+	oText.insertString(oCursor, "Estimated Current Intrinsic Value: ", False)
+	oText.insertString(oCursor, CStr(Format(est_val_current, "$0.00"))+chr(9), False)
+	oText.insertString(oCursor, chr(9)+"Graham/Dodd Bargain Value: ", False)
+	oText.insertString(oCursor, CStr(Format(bargain_current, "$0.00"))+chr(13), False)
+	oText.insertString(oCursor, "Alternate Price/Book Ratio: ", False)
+	oText.insertString(oCursor, CStr(Format(alt_pb, "0.00"))+chr(9), False)
+	oText.insertString(oCursor, chr(9)+"Alternate PE Ratio: ", False)
+	oText.insertString(oCursor, CStr(Format(alt_pe, "0.0"))+chr(9), False)
+	oText.insertString(oCursor, chr(9)+"Alternate Earnings Yield: ", False)
+	oText.insertString(oCursor, CStr(Format(alt_yield, "0.0%"))+chr(13)+chr(13), False)
+	oText.insertString(oCursor, "Appraisal:"+chr(13), False)
+	' Create table
+	Dim r_last, c_last as Integer		
+	r_last=11
+	c_last=c_max_ret-num_ave_cf-2
+	Dim r, c, c0 as Integer
+	c0=1200
+	'Create table
+	oTextTable = oDoc.createInstance("com.sun.star.text.TextTable")
+  	oTextTable.initialize(r_last+1, c_last+1)
+  	' oTextTable.HoriOrient = 0 'com.sun.star.text.HoriOrientation::NONE
+  	' oTextTable.LeftMargin = 2000
+  	' oTextTable.RightMargin = 1500
+	oText.insertTextContent(oCursor, oTextTable, false)
+	' Created table
+	' Resize table
+	Dim oRows, oRow As Object
+	oRows = oTextTable.getRows
+	For r=0 to r_last
+		oRow = oRows.getByIndex(r)
+		dim TableColSeps()
+		TableColSeps = oRow.TableColumnSeparators
+		TableColSeps(0).Position=c0
+		for c=1 to c_last-1
+			TableColSeps(c).Position=c0+c*(10000-c0)/c_last
+		next c
+		oRow.TableColumnSeparators=TableColSeps 
+	next r
+	'Resized table
+  	' Develop data arrays for table
+ 	Dim array_table$(r_last, c_last)
+ 	array_table$(0, 0)="Year"
+	array_table$(1, 0)="Intrinsic value per share"
+	array_table$(2, 0)="Intrinsic value per share (convertible dilution)"
+	array_table$(3, 0)="Graham/Dodd bargain value per share"
+	array_table$(4, 0)="Graham/Dodd bargain value per share (convertible dilution)"
+	array_table$(5, 0)="Smoothed free cash flow per share"
+	array_table$(6, 0)="Smoothed free cash flow per share (convertible dilution)"
+	array_table$(7, 0)="PPE per share"
+	array_table$(8, 0)="PPE per share (convertible dilution)"
+	array_table$(9, 0)="Smoothed return on PPE ("+num_ave_cf+"-year average)"
+	array_table$(10, 0)="Net liquidity per share"
+	array_table$(11, 0)="Net liquidity per share (convertible dilution)"
+
+	for c=1 to c_last
+		Dim c_data as Integer
+		c_data=3+c_last-c
+		array_table$(0, c)=CStr(year_num(c_data))
+		array_table$(1, c)=CStr(Format(est_val_nc(c_data), "$0.00"))
+		array_table$(2, c)=CStr(Format(est_val_c(c_data), "$0.00"))
+		array_table$(3, c)=CStr(Format(bargain_nc(c_data), "$0.00"))
+		array_table$(4, c)=CStr(Format(bargain_c(c_data), "$0.00"))
+		array_table$(5, c)=CStr(Format(fcf_smooth_sh_nc(c_data), "$0.000"))
+		array_table$(6, c)=CStr(Format(fcf_smooth_sh_c(c_data), "$0.000"))
+		array_table$(7, c)=CStr(Format(ppec_sh_nc(c_data), "$0.000"))
+		array_table$(8, c)=CStr(Format(ppec_sh_c(c_data), "$0.000"))
+		array_table$(9, c)=CStr(Format(fcf_per_smooth(c_data), "0.0%"))
+		array_table$(10, c)=CStr(Format(netliq_sh(c_data), "$0.00"))
+		array_table$(11, c)=CStr(Format(netliq_sh_c(c_data), "$0.00"))
+	next c
+	' Data arrays for table developed
+	' Fill table
+	Dim Rows As Object
+	Dim Cols As Object
+	Dim CellName As String
+	Dim Cell As Object
+	Rows=oTextTable.getRows
+	Cols=oTextTable.getColumns
+	Dim rowindex, colindex As Integer
+	Dim oTableCursor As Object	
+	For rowindex=1 to Rows.getCount()
+		For colindex=1 to Cols.getCount()
+			CellName = Chr(64 + colindex) & rowindex
+      		Cell = oTextTable.getCellByName(CellName)
+      		oTableCursor=oTextTable.createCursorByCellname(CellName)
+      		oTableCursor.charHeight=6
+      		Cell.String = CStr(array_table$ (rowindex-1, colindex-1))
+		Next colindex
+	Next rowindex
+	' Table filled
+	' Insert page break
+	Dim oFrame, dispatcher as Object
+	oFrame = oDoc.CurrentController.Frame 
+	dispatcher = createUnoService("com.sun.star.frame.DispatchHelper") 
+	dispatcher.executeDispatch(oFrame, ".uno:InsertPagebreak", "", 0, Array()) 
+	' Page break inserted
+
+	oText.insertString(oCursor, "Company Performance Data:"+chr(13), False)
+	' Create table
+	ReDim r_last, c_last as Integer		
+	r_last=6
+	c_last=c_max_ret-2
+	ReDim r, c, c0 as Integer
+	c0=1200
+	'Create table
+	oTextTable = oDoc.createInstance("com.sun.star.text.TextTable")
+  	oTextTable.initialize(r_last+1, c_last+1)
+  	' oTextTable.HoriOrient = 0 'com.sun.star.text.HoriOrientation::NONE
+  	' oTextTable.LeftMargin = 2000
+  	' oTextTable.RightMargin = 1500
+	oText.insertTextContent(oCursor, oTextTable, false)
+	' Created table
+	' Resize table
+	ReDim oRows, oRow As Object
+	oRows = oTextTable.getRows
+	For r=0 to r_last
+		oRow = oRows.getByIndex(r)
+		dim TableColSeps1()
+		TableColSeps1 = oRow.TableColumnSeparators
+		TableColSeps1(0).Position=c0
+		for c=1 to c_last-1
+			TableColSeps1(c).Position=c0+c*(10000-c0)/c_last
+		next c
+		oRow.TableColumnSeparators=TableColSeps1
+	next r
+	'Resized table
+  	' Develop data arrays for table
+ 	ReDim array_table$(r_last, c_last)
+ 	array_table$(0, 0)="Year"
+ 	array_table$(1, 0)="Smoothed return on PPE ("+num_ave_cf+"-year average)"
+ 	array_table$(2, 0)="Unsmoothed return on PPE"
+ 	array_table$(3, 0)="Free cash flow ($millions)"
+ 	array_table$(4, 0)="Normalized capital spending ($millions)"
+ 	array_table$(5, 0)="Cash flow ($millions)"
+ 	array_table$(6, 0)="PPE ($millions)"
+ 	' print fcf_per_smooth(3+c_last-1)
+ 	' print Format(fcf_per_smooth(3+c_last-1), "0.0%")
+ 	' print CStr(Format(fcf_per_smooth(3+c_last-1), "0.0%"))
+	for c=1 to c_last
+		ReDim c_data as Integer
+		c_data=3+c_last-c
+		array_table$(0, c)=CStr(year_num(c_data))
+		if fcf_per_smooth(c_data) = Null Then
+				array_table$(1, c)="N/A"
+		else
+			array_table$(1, c)=CStr(Format(fcf_per_smooth(c_data), "0.0%"))
+		End if
+		array_table$(2, c)=CStr(Format(fcf_per(c_data), "0.0%"))
+		array_table$(3, c)=CStr(Format(fcf(c_data)*un_plus(c_data)*10^-6, "#,##0.0##"))
+		array_table$(4, c)=CStr(Format(ncap(c_data)*un_plus(c_data)*10^-6, "#,##0.0##"))
+		array_table$(5, c)=CStr(Format(cashflow(c_data)*un_plus(c_data)*10^-6, "#,##0.0##"))		
+		array_table$(6, c)=CStr(Format(ppec(c_data)*un_plus(c_data)*10^-6, "#,##0.0##"))
+	next c
+	' Data arrays for table developed
+	' Fill table
+	ReDim Rows As Object
+	ReDim Cols As Object
+	ReDim CellName As String
+	ReDim Cell As Object
+	Rows=oTextTable.getRows
+	Cols=oTextTable.getColumns
+	ReDim rowindex, colindex As Integer
+	ReDim oTableCursor As Object	
+	For rowindex=1 to Rows.getCount()
+		For colindex=1 to Cols.getCount()
+			CellName = Chr(64 + colindex) & rowindex
+      		Cell = oTextTable.getCellByName(CellName)
+      		oTableCursor=oTextTable.createCursorByCellname(CellName)
+      		oTableCursor.charHeight=6
+      		Cell.String = CStr(array_table$ (rowindex-1, colindex-1))
+		Next colindex
+	Next rowindex
+	' Table filled
+
+	oText.insertString(oCursor, chr(13)+"Cash Flow:"+chr(13), False)
+	' Create table
+	ReDim r_last, c_last as Integer		
+	r_last=1
+	c_last=c_max_cf-2
+	ReDim r, c, c0 as Integer
+	c0=1200
+	'Create table
+	oTextTable = oDoc.createInstance("com.sun.star.text.TextTable")
+  	oTextTable.initialize(r_last+1, c_last+1)
+  	' oTextTable.HoriOrient = 0 'com.sun.star.text.HoriOrientation::NONE
+  	' oTextTable.LeftMargin = 2000
+  	' oTextTable.RightMargin = 1500
+	oText.insertTextContent(oCursor, oTextTable, false)
+	' Created table
+	' Resize table
+	ReDim oRows, oRow As Object
+	oRows = oTextTable.getRows
+	For r=0 to r_last
+		oRow = oRows.getByIndex(r)
+		dim TableColSeps2()
+		TableColSeps2 = oRow.TableColumnSeparators
+		TableColSeps2(0).Position=c0
+		for c=1 to c_last-1
+			TableColSeps2(c).Position=c0+c*(10000-c0)/c_last
+		next c
+		oRow.TableColumnSeparators=TableColSeps2
+	next r
+	'Resized table
+  	' Develop data arrays for table
+ 	ReDim array_table$(r_last, c_last)
+ 	array_table$(0, 0)="Year"
+  	array_table$(1, 0)="Cash flow ($millions)"
+	for c=1 to c_last
+		ReDim c_data as Integer
+		c_data=3+c_last-c
+		array_table$(0, c)=CStr(year_num(c_data))
+		array_table$(1, c)=CStr(cashflow(c_data)*un_plus(c_data)*10^-6)
+	next c
+	' Data arrays for table developed
+	' Fill table
+	ReDim Rows As Object
+	ReDim Cols As Object
+	ReDim CellName As String
+	ReDim Cell As Object
+	Rows=oTextTable.getRows
+	Cols=oTextTable.getColumns
+	ReDim rowindex, colindex As Integer
+	ReDim oTableCursor As Object	
+	For rowindex=1 to Rows.getCount()
+		For colindex=1 to Cols.getCount()
+			CellName = Chr(64 + colindex) & rowindex
+      		Cell = oTextTable.getCellByName(CellName)
+      		oTableCursor=oTextTable.createCursorByCellname(CellName)
+      		oTableCursor.charHeight=6
+      		Cell.String = CStr(array_table$ (rowindex-1, colindex-1))
+		Next colindex
+	Next rowindex
+	' Table filled
+	
+	oText.insertString(oCursor, chr(13)+"Plant, Property, and Equipment At Cost:"+chr(13), False)
+	' Create table
+	ReDim r_last, c_last as Integer		
+	r_last=1
+	c_last=c_max_bs-2
+	ReDim r, c, c0 as Integer
+	c0=1200
+	'Create table
+	oTextTable = oDoc.createInstance("com.sun.star.text.TextTable")
+  	oTextTable.initialize(r_last+1, c_last+1)
+  	' oTextTable.HoriOrient = 0 'com.sun.star.text.HoriOrientation::NONE
+  	' oTextTable.LeftMargin = 2000
+  	' oTextTable.RightMargin = 1500
+	oText.insertTextContent(oCursor, oTextTable, false)
+	' Created table
+	' Resize table
+	ReDim oRows, oRow As Object
+	oRows = oTextTable.getRows
+	For r=0 to r_last
+		oRow = oRows.getByIndex(r)
+		dim TableColSeps3()
+		TableColSeps3 = oRow.TableColumnSeparators
+		TableColSeps3(0).Position=c0
+		for c=1 to c_last-1
+			TableColSeps3(c).Position=c0+c*(10000-c0)/c_last
+		next c
+		oRow.TableColumnSeparators=TableColSeps3
+	next r
+	'Resized table
+  	' Develop data arrays for table
+ 	ReDim array_table$(r_last, c_last)
+ 	array_table$(0, 0)="Year"
+  	array_table$(1, 0)="PPE ($millions)"
+	for c=1 to c_last
+		ReDim c_data as Integer
+		c_data=3+c_last-c
+		array_table$(0, c)=CStr(year_num(c_data))
+		array_table$(1, c)=CStr(Format(ppec(c_data)*un_plus(c_data)*10^-6, "#,##0.0##"))
+	next c
+	' Data arrays for table developed
+	' Fill table
+	ReDim Rows As Object
+	ReDim Cols As Object
+	ReDim CellName As String
+	ReDim Cell As Object
+	Rows=oTextTable.getRows
+	Cols=oTextTable.getColumns
+	ReDim rowindex, colindex As Integer
+	ReDim oTableCursor As Object	
+	For rowindex=1 to Rows.getCount()
+		For colindex=1 to Cols.getCount()
+			CellName = Chr(64 + colindex) & rowindex
+      		Cell = oTextTable.getCellByName(CellName)
+      		oTableCursor=oTextTable.createCursorByCellname(CellName)
+      		oTableCursor.charHeight=6
+      		Cell.String = CStr(array_table$ (rowindex-1, colindex-1))
+		Next colindex
+	Next rowindex
+	' Table filled
+	' Insert page break
+	ReDim oFrame, dispatcher as Object
+	oFrame = oDoc.CurrentController.Frame 
+	dispatcher = createUnoService("com.sun.star.frame.DispatchHelper") 
+	dispatcher.executeDispatch(oFrame, ".uno:InsertPagebreak", "", 0, Array()) 
+	' Page break inserted
+
+	oText.insertString(oCursor, "Shares:"+chr(13), False)
+	' Create table
+	ReDim r_last, c_last as Integer		
+	r_last=5
+	c_last=c_max_bs-2
+	ReDim r, c, c0 as Integer
+	c0=1200
+	'Create table
+	oTextTable = oDoc.createInstance("com.sun.star.text.TextTable")
+  	oTextTable.initialize(r_last+1, c_last+1)
+  	' oTextTable.HoriOrient = 0 'com.sun.star.text.HoriOrientation::NONE
+  	' oTextTable.LeftMargin = 2000
+  	' oTextTable.RightMargin = 1500
+	oText.insertTextContent(oCursor, oTextTable, false)
+	' Created table
+	' Resize table
+	ReDim oRows, oRow As Object
+	oRows = oTextTable.getRows
+	For r=0 to r_last
+		oRow = oRows.getByIndex(r)
+		dim TableColSeps4()
+		TableColSeps4 = oRow.TableColumnSeparators
+		TableColSeps4(0).Position=c0
+		for c=1 to c_last-1
+			TableColSeps4(c).Position=c0+c*(10000-c0)/c_last
+		next c
+		oRow.TableColumnSeparators=TableColSeps4
+	next r
+	'Resized table
+  	' Develop data arrays for table
+ 	ReDim array_table$(r_last, c_last)
+ 	array_table$(0, 0)="Year"
+  	array_table$(1, 0)="Total shares (millions)"
+  	array_table$(2, 0)="Total shares with convertible dilution (millions)"
+  	array_table$(3, 0)="Split factor"
+  	array_table$(4, 0)="Total pre-split shares (millions)"
+  	array_table$(5, 0)="Total pre-split shares with convertible dilution ($millions)"
+	for c=1 to c_last
+		ReDim c_data as Integer
+		c_data=3+c_last-c
+		array_table$(0, c)=CStr(year_num(c_data))
+		array_table$(1, c)=CStr(format(shares(c_data)*10^-6, "#,##0.0##"))
+		array_table$(2, c)=CStr(format(total_shares(c_data)*10^-6, "#,##0.0##"))
+		array_table$(3, c)=CStr(format(split_factor(c_data), "#.0##"))
+		array_table$(4, c)=CStr(format(shares_pre(c_data)*10^-6, "#,##0.0##"))
+		array_table$(5, c)=CStr(format((shares_pre(c_data)+shares_c_pre(c_data))*10^-6, "#,##0.0##"))
+
+	next c
+	' Data arrays for table developed
+	' Fill table
+	ReDim Rows As Object
+	ReDim Cols As Object
+	ReDim CellName As String
+	ReDim Cell As Object
+	Rows=oTextTable.getRows
+	Cols=oTextTable.getColumns
+	ReDim rowindex, colindex As Integer
+	ReDim oTableCursor As Object	
+	For rowindex=1 to Rows.getCount()
+		For colindex=1 to Cols.getCount()
+			CellName = Chr(64 + colindex) & rowindex
+      		Cell = oTextTable.getCellByName(CellName)
+      		oTableCursor=oTextTable.createCursorByCellname(CellName)
+      		oTableCursor.charHeight=6
+      		Cell.String = CStr(array_table$ (rowindex-1, colindex-1))
+		Next colindex
+	Next rowindex
+	' Table filled
+
+	oText.insertString(oCursor, chr(13)+"Liquidity:"+chr(13), False)
+	' Create table
+	ReDim r_last, c_last as Integer		
+	r_last=5
+	c_last=c_max_bs-2
+	ReDim r, c, c0 as Integer
+	c0=1200
+	'Create table
+	oTextTable = oDoc.createInstance("com.sun.star.text.TextTable")
+  	oTextTable.initialize(r_last+1, c_last+1)
+  	' oTextTable.HoriOrient = 0 'com.sun.star.text.HoriOrientation::NONE
+  	' oTextTable.LeftMargin = 2000
+  	' oTextTable.RightMargin = 1500
+	oText.insertTextContent(oCursor, oTextTable, false)
+	' Created table
+	' Resize table
+	ReDim oRows, oRow As Object
+	oRows = oTextTable.getRows
+	For r=0 to r_last
+		oRow = oRows.getByIndex(r)
+		dim TableColSeps5()
+		TableColSeps5 = oRow.TableColumnSeparators
+		TableColSeps5(0).Position=c0
+		for c=1 to c_last-1
+			TableColSeps5(c).Position=c0+c*(10000-c0)/c_last
+		next c
+		oRow.TableColumnSeparators=TableColSeps5
+	next r
+	'Resized table
+  	' Develop data arrays for table
+ 	ReDim array_table$(r_last, c_last)
+ 	array_table$(0, 0)="Year"
+  	array_table$(1, 0)="Net liquidity ($millions)"
+  	array_table$(2, 0)="Net liquidity with convertible dilution ($millions)"
+  	array_table$(3, 0)="Total liquid assets ($millions)"
+  	array_table$(4, 0)="Total liabilities ($millions)"
+  	array_table$(5, 0)="Total liabilities with convertible dilution ($millions)"
+	for c=1 to c_last
+		ReDim c_data as Integer
+		c_data=3+c_last-c
+		array_table$(0, c)=CStr(year_num(c_data))
+		array_table$(1, c)=CStr(format(netliq(c_data)*un_plus(c_data)*10^-6, "#,##0.0"))
+		array_table$(2, c)=CStr(format(netliq_c(c_data)*un_plus(c_data)*10^-6, "#,##0.0"))
+		array_table$(3, c)=CStr(format(liquid(c_data)*un_plus(c_data)*10^-6, "#,##0.0"))
+		array_table$(4, c)=CStr(format(liabs(c_data)*un_plus(c_data)*10^-6, "#,##0.0"))
+		array_table$(5, c)=CStr(format((liabs(c_data)+liab_c(c_data))*un_plus(c_data)*10^-6, "#,##0.0"))
+	next c
+	' Data arrays for table developed
+	' Fill table
+	ReDim Rows As Object
+	ReDim Cols As Object
+	ReDim CellName As String
+	ReDim Cell As Object
+	Rows=oTextTable.getRows
+	Cols=oTextTable.getColumns
+	ReDim rowindex, colindex As Integer
+	ReDim oTableCursor As Object	
+	For rowindex=1 to Rows.getCount()
+		For colindex=1 to Cols.getCount()
+			CellName = Chr(64 + colindex) & rowindex
+      		Cell = oTextTable.getCellByName(CellName)
+      		oTableCursor=oTextTable.createCursorByCellname(CellName)
+      		oTableCursor.charHeight=5
+      		Cell.String = CStr(array_table$ (rowindex-1, colindex-1))
+		Next colindex
+	Next rowindex
+	' Table filled
+	
+	' Save document
+	Output_File=Output_Directory+"/"+Stock_Symbol+".odt"
+	oDoc.StoreAsUrl ("file://"+Output_File, Array())
+
+End Sub
+
+Function run_analysis()
+    get_data
+    convert_data_to_years
+    convert_data_to_labels
+    convert_data_to_numbers
+    get_codes
+    convert_codes
+    match_codes
+   	get_company_name
+    process_data1
+    process_data2
+    process_data3
+    process_data4
+    process_data5
+    output_results_1
+End Function
+
+
+
